@@ -2,19 +2,23 @@ package com.example.boardpjt.controller;
 
 import com.example.boardpjt.model.dto.PostDTO;
 import com.example.boardpjt.model.entity.Post;
+import com.example.boardpjt.model.entity.UserAccount;
 import com.example.boardpjt.service.PostService;
 import com.example.boardpjt.service.UserAccountService;
+import io.netty.util.internal.StringUtil;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 /**
  * 게시물 관련 컨트롤러
  * 게시판의 핵심 기능인 CRUD(Create, Read, Update, Delete) 작업을 처리
  * 사용자 인증을 통한 권한 기반 게시물 관리 제공
- *
+ * <p>
  * 주요 기능:
  * - 게시물 목록 조회
  * - 게시물 상세 보기
@@ -40,13 +44,28 @@ public class PostController {
      * @return String - 렌더링할 템플릿 파일명 (templates/post/list.html)
      */
     @GetMapping // GET /posts 요청 처리
-    public String list(Model model) {
+    public String list(Model model,
+//                       @RequestParam(defaultValue = "1", required = false) int page) {
+                       @RequestParam(defaultValue = "1") int page,
+                       @RequestParam(required = false) String keyword) {
+        if (!StringUtils.hasText(keyword)) {
+            keyword = "";
+        }
 
         // === 게시물 데이터 조회 및 DTO 변환 ===
+        Page<Post> postPage = postService.findwithPagingAndSearch(keyword, page - 1);
+        // 현재 페이지
+        model.addAttribute("currentPage", page);
+        // 전체 페이지
+        model.addAttribute("totalPages", postPage.getTotalPages());
+
+
+        // 2단계: Stream API를 사용하여 Entity → DTO 변환
+        // 전달할 데이터
         model.addAttribute("posts",
                 // 1단계: 모든 게시물 조회 (Post Entity 리스트)
-                postService.findAll()
-                        // 2단계: Stream API를 사용하여 Entity → DTO 변환
+//                postService.findAll() -> 페이지네이션 만들고 지웠음
+                postPage.getContent()
                         .stream().map(p -> new PostDTO.Response(
                                 p.getId(),                          // 게시물 ID
                                 p.getTitle(),                       // 제목
@@ -70,18 +89,25 @@ public class PostController {
      * 게시물 상세 페이지
      * 특정 게시물의 상세 정보를 표시
      *
-     * @param id 조회할 게시물의 ID (URL 경로에서 추출)
+     * @param id    조회할 게시물의 ID (URL 경로에서 추출)
      * @param model Spring MVC의 Model 객체 - 뷰에 데이터 전달
      * @return String - 렌더링할 템플릿 파일명 (templates/post/detail.html)
      */
-    @GetMapping("/{id}") // GET /posts/123 형태의 요청 처리
-    public String detail(@PathVariable Long id, Model model) {
-        // @PathVariable: URL 경로의 {id} 부분을 메서드 매개변수로 바인딩
 
+    private final UserAccountService userAccountService;
+
+    @GetMapping("/{id}") // GET /posts/123 형태의 요청 처리
+    public String detail(@PathVariable Long id, Model model, Authentication authentication) {
+        // @PathVariable: URL 경로의 {id} 부분을 메서드 매개변수로 바인딩
+        UserAccount userAccount = userAccountService.findByUsername(authentication.getName());
+        Post post = postService.findById(id);
+        boolean followCheck = post.getAuthor().getFollowers().contains(userAccount);
+
+        model.addAttribute("followCheck", followCheck);
         // === 개별 게시물 조회 ===
         // PostService를 통해 특정 ID의 게시물 조회
         // 존재하지 않는 ID인 경우 Service에서 예외 처리 필요
-        model.addAttribute("post", postService.findById(id));
+        model.addAttribute("post", post);
 
         // === '내 게시물' 표시 방법 고려사항 ===
         // 현재는 Entity를 직접 전달하고 있으며, 뷰에서 작성자 확인 가능한 방법들:
@@ -107,7 +133,7 @@ public class PostController {
      * 새로운 게시물을 작성할 수 있는 폼을 제공
      * 현재 로그인한 사용자 정보를 미리 설정
      *
-     * @param model Spring MVC의 Model 객체
+     * @param model          Spring MVC의 Model 객체
      * @param authentication Spring Security의 인증 정보 (현재 로그인한 사용자)
      * @return String - 렌더링할 템플릿 파일명 (templates/post/form.html)
      */
@@ -132,7 +158,7 @@ public class PostController {
      * 게시물 작성 처리
      * POST 요청으로 전송된 게시물 데이터를 받아서 저장
      *
-     * @param dto 폼에서 전송된 게시물 데이터 (@ModelAttribute로 자동 바인딩)
+     * @param dto            폼에서 전송된 게시물 데이터 (@ModelAttribute로 자동 바인딩)
      * @param authentication Spring Security의 인증 정보
      * @return String - 작성 완료 후 리다이렉트할 경로
      */
@@ -167,7 +193,7 @@ public class PostController {
      * 게시물 삭제 처리
      * 작성자만 자신의 게시물을 삭제할 수 있음
      *
-     * @param id 삭제할 게시물의 ID
+     * @param id             삭제할 게시물의 ID
      * @param authentication Spring Security의 인증 정보
      * @return String - 삭제 완료 후 리다이렉트할 경로
      */
@@ -214,6 +240,28 @@ public class PostController {
         // 사용자에게 일관된 경험 제공
         return "redirect:/posts";
     }
+
+    @GetMapping("/{id}/edit")
+    public String editForm(@PathVariable Long id, Model model, Authentication authentication) {
+        Post post = postService.findById(id);
+        if (!post.getAuthor().getUsername().equals(authentication.getName())) {
+            return "redirect:/posts/" + id;
+        }
+        model.addAttribute("post", post);
+        return "post/edit";
+    }
+
+    @PostMapping("/{id}/edit")
+    public String edit(@PathVariable Long id, @ModelAttribute PostDTO.Request dto, Authentication authentication) {
+        dto.setUsername(authentication.getName()); // 인증 정보를 바탕으로 편집자 정보 넣고,
+        try {
+            postService.updatePost(id, dto); // service를 사용해서 수정 저장 처리
+
+        } catch (Exception e) {
+            return "redirect:/posts/" + id + "edit";
+        }
+        return "redirect:/posts";
+    }
 }
 
 // === 보안 고려사항 ===
@@ -223,12 +271,12 @@ public class PostController {
  * - 게시물 작성: 로그인한 사용자만 가능
  * - 게시물 수정/삭제: 작성자 본인만 가능
  * - 관리자 권한: 모든 게시물 관리 가능 (추후 구현)
- *
+ * <p>
  * 2. 입력 검증:
  * - XSS 방지: 게시물 내용 HTML 이스케이프
  * - SQL Injection 방지: JPA 사용으로 기본 보호
  * - 데이터 길이 제한: Entity 제약조건 설정
- *
+ * <p>
  * 3. 인증 정보 신뢰:
  * - JWT 토큰에서 추출한 사용자 정보만 신뢰
  * - 클라이언트에서 전송된 username 무시
@@ -240,11 +288,11 @@ public class PostController {
  * 1. 피드백 메시지:
  * - 게시물 작성/수정/삭제 성공 시 확인 메시지
  * - 권한 없음, 오류 발생 시 명확한 안내
- *
+ * <p>
  * 2. 페이징 처리:
  * - 대량의 게시물에 대한 페이징 구현
  * - Spring Data JPA의 Pageable 활용
- *
+ * <p>
  * 3. 검색 및 정렬:
  * - 제목, 내용, 작성자별 검색 기능
  * - 작성일, 조회수, 좋아요 수 등으로 정렬

@@ -6,6 +6,9 @@ import com.example.boardpjt.model.entity.UserAccount;
 import com.example.boardpjt.model.repository.PostRepository;
 import com.example.boardpjt.model.repository.UserAccountRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,11 +32,21 @@ public class PostService {
         post.setContent(dto.getContent());
         return postRepository.save(post);
     }
+
     // 2-1. findAll
     @Transactional(readOnly = true)
     public List<Post> findAll() {
         return postRepository.findAll();
     }
+
+    // 2-1-2. 페이지네이션 & search
+    @Transactional(readOnly = true)
+    public Page<Post> findwithPagingAndSearch(String keyword, int page) {
+        // TODO ; keyword
+        Pageable pageable = PageRequest.of(page, 5);
+        return postRepository.findByTitleContainingOrContentContainingOrderByIdDesc(keyword, keyword, pageable);
+    }
+
     // 2-2. findOne (byId...)
     @Transactional(readOnly = true)
     public Post findById(Long id) {
@@ -51,6 +64,17 @@ public class PostService {
 
     // -------------------------
     // 3. update
+    @Transactional
+    public void updatePost(Long id, PostDTO.Request dto) {
+        Post post = findById(id);
+        if (!post.getAuthor().getUsername().equals(dto.getUsername())) {
+            throw new SecurityException("작성자만 수정 가능");
+        }
+        post.setTitle(dto.getTitle());
+        post.setContent(dto.getContent());
+        postRepository.save(post);
+
+    }
     // 4. delete v
 
     // 페이징, 검색 쿼리 -> 내일 오전

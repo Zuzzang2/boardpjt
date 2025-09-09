@@ -60,7 +60,7 @@ public class SecurityConfig {
         // === URL별 접근 권한 설정 (개선된 버전) ===
         http.authorizeHttpRequests(auth -> auth
                         // 홈페이지("/")와 인증 관련 경로("/auth/**")는 모든 사용자 접근 허용
-                        .requestMatchers("/", "/auth/**").permitAll()
+                        .requestMatchers("/", "/auth/**", "/posts/**").permitAll()
                         // auth/** 패턴 사용으로 다음 경로들이 모두 포함됨:
                         // - /auth/register (회원가입)
                         // - /auth/login (로그인)
@@ -97,17 +97,18 @@ public class SecurityConfig {
 
         // === JWT 필터 체인 구성 (중요: 순서가 매우 중요함) ===
         http
-                // 1단계: RefreshJwtFilter를 가장 먼저 배치
-                // - Refresh Token 갱신 요청을 우선 처리
-                // - /auth/refresh 경로에 대한 특별한 처리 담당
-                .addFilterBefore(new RefreshJwtFilter(jwtUtil, userDetailsService, refreshTokenRepository),
-                        JwtFilter.class)
-
-                // 2단계: JwtFilter를 UsernamePasswordAuthenticationFilter 앞에 배치
+                // 1단계: JwtFilter를 UsernamePasswordAuthenticationFilter 앞에 배치
                 // - 일반적인 Access Token 검증 담당
                 // - 모든 HTTP 요청에 대해 JWT 토큰 유효성 검증
                 .addFilterBefore(new JwtFilter(jwtUtil, userDetailsService),
-                        UsernamePasswordAuthenticationFilter.class);
+                        UsernamePasswordAuthenticationFilter.class)
+
+                // 2단계: RefreshJwtFilter를 가장 먼저 배치
+                // - Refresh Token 갱신 요청을 우선 처리
+                // - /auth/refresh 경로에 대한 특별한 처리 담당
+                .addFilterBefore(new RefreshJwtFilter(jwtUtil, userDetailsService, refreshTokenRepository),
+                        JwtFilter.class);
+
 
         // === 필터 체인 실행 순서 ===
         // 1. RefreshJwtFilter: Refresh Token 갱신 처리
